@@ -7,27 +7,28 @@ Shader "liangairan/pbr/prefilterSpecularMap" {
 	Properties {
         _Cube("Environment Map", Cube) = "_Skybox" {}
         //_NormalTex("NormalMap (RGB)", 2D) = "bump" {}
-	}
-	SubShader {
-		Tags { "RenderType"="Opaque" }
-		LOD 200
-        Cull Off
+    }
+        SubShader{
+            Tags { "RenderType" = "Opaque" }
+            LOD 200
+            Cull Off
 
-        Pass
-        {
-            Tags { "LightMode" = "ForwardBase" }
-            CGPROGRAM
-            #include "UnityCG.cginc"
-            #include "AutoLight.cginc"
-            #include "Lighting.cginc"
-            #pragma target 3.0
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma exclude_renderers xbox360 flash	
-            //#pragma multi_compile_fwdbase 
-            #define PI 3.14159265359
+            Pass
+            {
+                Tags { "LightMode" = "ForwardBase" }
+                CGPROGRAM
+                #include "UnityCG.cginc"
+                #include "AutoLight.cginc"
+                #include "Lighting.cginc"
+                #pragma target 3.0
+                #pragma vertex vert
+                #pragma fragment frag
+                #pragma exclude_renderers xbox360 flash	
+        //#pragma multi_compile_fwdbase 
+        #define PI 3.14159265359
 
-            UNITY_DECLARE_TEXCUBE( _Cube);
+        //UNITY_DECLARE_TEXCUBE( _Cube);
+    samplerCUBE _Cube;
     uniform float _roughness;
             //sampler2D _NormalTex;
 
@@ -126,7 +127,7 @@ Shader "liangairan/pbr/prefilterSpecularMap" {
                 fixed3 V = R;
 
                 const uint SAMPLE_COUNT = 1024u;
-                fixed3 prefilteredColor = fixed3(0.0, 0.0, 0.0);
+                half3 prefilteredColor = half3(0.0, 0.0, 0.0);
                 float totalWeight = 0.0;
 
                 for (uint i = 0u; i < SAMPLE_COUNT; ++i)
@@ -139,6 +140,7 @@ Shader "liangairan/pbr/prefilterSpecularMap" {
                     float NdotL = max(dot(N, L), 0.0);
                     if (NdotL > 0.0)
                     {
+#ifdef PREFILTER_CONVOLUTION
                         // sample from the environment's mip level based on roughness/pdf
                         float D = DistributionGGX(N, H, _roughness);
                         float NdotH = max(dot(N, H), 0.0);
@@ -146,20 +148,27 @@ Shader "liangairan/pbr/prefilterSpecularMap" {
                         float pdf = D * NdotH / (4.0 * HdotV) + 0.0001;
 
                         float resolution = 128.0; // resolution of source cubemap (per face)
+
+                        //球的面积是4π，那一个像素对应的面积就是 4π/(6 * resolution²)
                         float saTexel = 4.0 * PI / (6.0 * resolution * resolution);
                         float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 0.0001);
 
                         float mipLevel = _roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel);
 
                         prefilteredColor += UNITY_SAMPLE_TEXCUBE_LOD(_Cube, L, mipLevel).rgb * NdotL;
-						//prefilteredColor = UNITY_SAMPLE_TEXCUBE_LOD(_Cube, L, mipLevel).rgb * NdotL;
+#else
+						prefilteredColor += texCUBE(_Cube, L).rgb * NdotL;
+#endif
                         totalWeight += NdotL;
                     }
                 }
 
                 prefilteredColor = prefilteredColor / totalWeight;
+#if !defined(UNITY_COLORSPACE_GAMMA)
+                prefilteredColor.rgb = pow(prefilteredColor.rgb, 2.2);
+#endif
 
-                return fixed4(prefilteredColor, 1.0);
+                return half4(prefilteredColor, 1.0);
             }
             ENDCG
         }
